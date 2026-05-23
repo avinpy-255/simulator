@@ -5,7 +5,8 @@ import math
 from src.config import (
     GRID_WIDTH, GRID_HEIGHT, CHUNK_SIZE,
     TILE_GRASS, TILE_DIRT, TILE_WATER, TILE_WALL, TILE_WASTELAND, TILE_FLOOR,
-    PRESET_DEFAULT, PRESET_NUCLEAR, PRESET_ZOMBIE, PRESET_NO_SUN, PRESET_NO_HUMANS, PRESET_NO_ANIMALS
+    PRESET_DEFAULT, PRESET_NUCLEAR, PRESET_ZOMBIE, PRESET_NO_SUN, PRESET_NO_HUMANS, PRESET_NO_ANIMALS,
+    GRASS_REGROW_CHANCE
 )
 
 class Chunk:
@@ -72,6 +73,7 @@ class World:
         # Spatial hashing for entities
         # maps (cx, cy) -> list of entities
         self.entity_chunks = {}
+        self.dirty_chunks = set()
         
         # Environmental variables
         self.time_of_day = 12.0  # 0.0 to 24.0 hours
@@ -135,6 +137,7 @@ class World:
         
         chunk = self.get_chunk(cx, cy)
         chunk.tiles[lx, ly] = tile_type
+        self.dirty_chunks.add((cx, cy))
 
     def get_radiation_at(self, tx, ty):
         """Gets radiation level at tile coordinates."""
@@ -195,7 +198,7 @@ class World:
             self.entity_chunks[key].append(ent)
 
     def update_environment(self, active_chunks):
-        """Updates day cycle and lighting values for currently active chunks.
+        """Updates day cycle, entity light grids, grass growth and decay.
         
         active_chunks: set of (cx, cy) tuples visible to player
         """
@@ -203,20 +206,71 @@ class World:
         self.time_of_day = (self.time_of_day + self.day_speed) % 24.0
         
         # Calculate ambient light based on hour
-        # Light peaks at 12:00 (100) and drops at 24:00 (10)
         if self.preset == PRESET_NO_SUN:
             self.global_light = 5.0
         else:
-            # Ambient daylight formula (smooth sinusoidal curve)
+            # Ambient daylight formula
             hour_rad = (self.time_of_day / 24.0) * 2 * math.pi
             self.global_light = 55.0 + 45.0 * math.sin(hour_rad - math.pi/2)
             
-        # Update light grids of active chunks
+        # Reset and fill light levels for active chunks
+        for cx, cy in active_chunks:
+            chunk = self.get_chunk(cx, cy)
+            chunk.light.fill(self.global_light)
+            
+        # Project dynamic light sources around active entities in "Without Sun" mode
+        if self.preset == PRESET_NO_SUN:
+            for chunk_list in self.entity_chunks.values():
+                for ent in chunk_list:
+                    if ent.is_dead:
+                        continue
+                    # Suppress human/android light if flashlight battery is empty
+                    if ent.type in ["human", "android"] and getattr(ent, "flashlight_battery", 100.0) <= 0.0:
+                        continue
+                    # Light radius in grid tiles
+                    r_tiles = 6 if ent.type == "android" else (3 if ent.type == "human" else (2 if ent.type == "charger" else (4 if ent.type == "beacon" else 0)))
+                    if r_tiles == 0:
+                        continue
+                    
+                    tx, ty = int(ent.x), int(ent.y)
+                    for dx in range(-r_tiles, r_tiles + 1):
+                        for dy in range(-r_tiles, r_tiles + 1):
+                            dist = math.hypot(dx, dy)
+                            if dist <= r_tiles:
+                                ltx = tx + dx
+                                lty = ty + dy
+                                if 0 <= ltx < self.width and 0 <= lty < self.height:
+                                    intensity = max(5.0, 100.0 * (1.0 - (dist / r_tiles)))
+                                    # Update light grid of target tile
+                                    tcx = ltx // CHUNK_SIZE
+                                    tcy = lty // CHUNK_SIZE
+                                    tlx = ltx % CHUNK_SIZE
+                                    tly = lty % CHUNK_SIZE
+                                    t_chunk = self.get_chunk(tcx, tcy)
+                                    t_chunk.light[tlx, tly] = max(t_chunk.light[tlx, tly], intensity)
+
+        # Update environment dynamics of active chunks
         for cx, cy in active_chunks:
             chunk = self.get_chunk(cx, cy)
             
-            # Base light
-            chunk.light.fill(self.global_light)
+            # Grass regrowth (Dirt -> Grass)
+            dirt_mask = (chunk.tiles == TILE_DIRT)
+            if np.any(dirt_mask):
+                rand_arr = np.random.rand(CHUNK_SIZE, CHUNK_SIZE)
+                regrow_mask = dirt_mask & (rand_arr < GRASS_REGROW_CHANCE)
+                if np.any(regrow_mask):
+                    chunk.tiles[regrow_mask] = TILE_GRASS
+                    self.dirty_chunks.add((cx, cy))
+                    
+            # Vegetation decay in deep darkness
+            if self.preset == PRESET_NO_SUN:
+                grass_mask = (chunk.tiles == TILE_GRASS)
+                dark_mask = (chunk.light < 15.0)
+                decay_rand = np.random.rand(CHUNK_SIZE, CHUNK_SIZE)
+                decay_mask = grass_mask & dark_mask & (decay_rand < 0.005) # 0.5% chance
+                if np.any(decay_mask):
+                    chunk.tiles[decay_mask] = TILE_DIRT
+                    self.dirty_chunks.add((cx, cy))
             
             # If nuclear, diffuse/decay radiation slightly
             if self.preset == PRESET_NUCLEAR:

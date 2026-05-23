@@ -52,6 +52,8 @@ COLORS = {
     "android": (255, 77, 240),     # Vibrant cyber magenta
     "charger": (255, 215, 0),      # Power / Gold
     "food": (230, 80, 80),         # Food / Red
+    "wolf": (150, 75, 0),          # Predator brown
+    "beacon": (0, 255, 255),       # Neon Cyan
     
     # UI Design System - Classic CRT terminal style
     "ui_bg": (10, 15, 10, 240),         # Dark green-black screen
@@ -81,3 +83,11 @@ STARTING_ZOMBIES = 10
 STARTING_ANDROIDS = 1
 STARTING_CHARGERS = 15
 STARTING_FOOD = 30
+STARTING_WOLVES = 8
+
+# Expanded Simulation Rates
+FLASHLIGHT_DECAY_RATE = 0.05       # Flashlight drain per frame
+GRASS_REGROW_CHANCE = 0.001        # Chance per frame for dirt -> grass
+ZOMBIE_WALL_DAMAGE_RATE = 0.4      # Damage dealt to Wall tiles per frame
+ANIMAL_BREED_THRESHOLD = 80.0      # Energy required for mating
+

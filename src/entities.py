@@ -3,8 +3,8 @@ import random
 import math
 import pygame
 from src.config import (
-    COLORS, TILE_WALL, TILE_GRASS, TILE_DIRT, TILE_WASTELAND,
-    GRID_WIDTH, GRID_HEIGHT, TILE_SIZE
+    COLORS, TILE_WALL, TILE_GRASS, TILE_DIRT, TILE_WASTELAND, TILE_FLOOR,
+    GRID_WIDTH, GRID_HEIGHT, TILE_SIZE, FLASHLIGHT_DECAY_RATE
 )
 from src.brain import NeuralBrain
 from src.utils import distance
@@ -183,6 +183,8 @@ class Human(BaseEntity):
         self.wander_dir = (0, 0)
         self.speed = 0.07
         self.infection_timer = -1  # Negative means healthy, positive counts down to turning zombie
+        self.wood = 0
+        self.flashlight_battery = 100.0
 
     def update(self, world, entities):
         # Human status decays
@@ -193,20 +195,34 @@ class Human(BaseEntity):
             
         if self.health <= 0:
             self.is_dead = True
-            # Spawn food where human died
             return
             
         # Zombification timer
         if self.infection_timer > 0:
             self.infection_timer -= 1
             if self.infection_timer <= 0:
-                self.is_dead = True # Trigger main script to convert this human to zombie
+                self.is_dead = True
                 return
                 
         # Radiation damage
         rad = world.get_radiation_at(int(self.x), int(self.y))
         if rad > 10.0:
             self.health -= rad * 0.015
+
+        # Flashlight battery drain
+        if world.preset == "no_sun":
+            self.flashlight_battery = max(0.0, self.flashlight_battery - FLASHLIGHT_DECAY_RATE)
+
+        # Gather wood/scrap from terrain
+        tx, ty = int(self.x), int(self.y)
+        current_tile = world.get_tile(tx, ty)
+        if current_tile == TILE_GRASS and self.wood < 8:
+            if random.random() < 0.04:  # 4% chance per frame
+                self.wood += 1
+                world.set_tile(tx, ty, TILE_DIRT)
+        elif current_tile in [TILE_WALL, TILE_FLOOR] and self.wood < 8:
+            if random.random() < 0.02:  # Scavenge scrap
+                self.wood += 1
 
         # Check for zombies
         zombie = None
@@ -221,6 +237,21 @@ class Human(BaseEntity):
         if zombie:
             self.state = "flee"
             self.target = None
+            
+            # Place defensive barricades (costs 2 wood)
+            if self.wood >= 2:
+                dx = self.x - zombie.x
+                dy = self.y - zombie.y
+                length = math.hypot(dx, dy)
+                if length > 0:
+                    bx = int(self.x - (dx / length))
+                    by = int(self.y - (dy / length))
+                    if 0 <= bx < world.width and 0 <= by < world.height:
+                        if world.get_tile(bx, by) in [TILE_GRASS, TILE_DIRT]:
+                            world.set_tile(bx, by, TILE_WALL)
+                            self.wood -= 2
+            
+            # Flee movement
             dx = self.x - zombie.x
             dy = self.y - zombie.y
             length = math.sqrt(dx*dx + dy*dy)
@@ -259,6 +290,7 @@ class Human(BaseEntity):
                     closest_food.is_dead = True
                     self.hunger = min(100.0, self.hunger + 40.0)
                     self.health = min(100.0, self.health + 10.0)
+                    self.flashlight_battery = 100.0  # Recharge flashlight
                 return
 
         # Wander
@@ -281,9 +313,18 @@ class Zombie(BaseEntity):
         self.wander_dir = (0, 0)
 
     def update(self, world, entities):
-        # Zombie radiation heals them slightly or does nothing
-        # We will make them immune to radiation damage
-        
+        # 1. Smash nearby walls if they block their path
+        tx, ty = int(self.x), int(self.y)
+        for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
+            wx, wy = tx + dx, ty + dy
+            if 0 <= wx < world.width and 0 <= wy < world.height:
+                if world.get_tile(wx, wy) == TILE_WALL:
+                    # Smash wall
+                    if random.random() < 0.005:  # Smash in ~3.5 seconds
+                        world.set_tile(wx, wy, TILE_DIRT)
+                    self.state = "smashing"
+                    return  # Stop and bash
+                    
         # Search for humans or animals to hunt
         self.target = None
         closest_dist = 10.0
@@ -335,6 +376,11 @@ class NeuralAndroid(BaseEntity):
         self.speed = 0.09
         self.is_dormant = False
         
+        # Modular upgrades
+        self.has_solar_panel = False
+        self.has_rad_shield = False
+        self.flashlight_battery = 100.0
+        
         # Neural Network Brain
         self.brain = NeuralBrain(learning_rate=0.01)
         
@@ -350,10 +396,10 @@ class NeuralAndroid(BaseEntity):
             self.is_dead = True
             return
             
-        # Radiation damage
+        # Radiation damage (Rad shield ignores this)
         rad = world.get_radiation_at(int(self.x), int(self.y))
-        if rad > 10.0:
-            self.health -= rad * 0.005 # Sturdier than humans
+        if rad > 10.0 and not self.has_rad_shield:
+            self.health -= rad * 0.005
 
         # Battery drainage
         if not self.is_dormant:
@@ -361,6 +407,16 @@ class NeuralAndroid(BaseEntity):
             if self.battery <= 0:
                 self.battery = 0
                 self.is_dormant = True
+                
+            # Solar panel battery recharge in daylight
+            if self.has_solar_panel:
+                tile_l = world.get_light_at(int(self.x), int(self.y))
+                if tile_l > 60.0:
+                    self.battery = min(100.0, self.battery + 0.06)
+                    
+            # Flashlight drain in sunless preset
+            if world.preset == "no_sun":
+                self.flashlight_battery = max(0.0, self.flashlight_battery - FLASHLIGHT_DECAY_RATE)
         else:
             # In dormant state, check if placed or moved onto a charger to boot back up
             self.health -= 0.05
@@ -371,6 +427,7 @@ class NeuralAndroid(BaseEntity):
             if ent.type == "charger" and not ent.is_dead:
                 if distance(self.x, self.y, ent.x, ent.y) < 0.8:
                     self.battery = 100.0
+                    self.flashlight_battery = 100.0  # Recharge flashlight
                     self.health = min(100.0, self.health + 0.2)
                     self.is_dormant = False
                     self.speed = 0.09
@@ -422,3 +479,121 @@ class NeuralAndroid(BaseEntity):
             time_ms = pygame.time.get_ticks()
             if int(time_ms / 300) % 2 == 0:
                 pygame.draw.circle(surface, (255, 255, 255), (sx, sy - 6), 2)
+
+class TargetBeacon(BaseEntity):
+    def __init__(self, x, y):
+        super().__init__(x, y, "beacon")
+        self.radius = 0.3
+        self.color = COLORS["beacon"]
+        
+    def draw(self, surface, camera_x, camera_y):
+        from src.utils import world_to_screen
+        sx, sy = world_to_screen(self.x + 0.5, self.y + 0.5, camera_x, camera_y)
+        
+        time_ms = pygame.time.get_ticks()
+        pulse = int(math.sin(time_ms * 0.01) * 4 + 8)
+        
+        # Pulsing rings
+        pygame.draw.circle(surface, (0, 255, 255, 60), (sx, sy), pulse * 2, width=1)
+        pygame.draw.circle(surface, self.color, (sx, sy), int(self.radius * TILE_SIZE))
+        pygame.draw.circle(surface, (255, 255, 255), (sx, sy), 3)
+
+class Wolf(BaseEntity):
+    def __init__(self, x, y):
+        super().__init__(x, y, "wolf")
+        self.hunger = 100.0
+        self.state = "wander"  # wander, hunt, breed
+        self.target = None
+        self.speed = 0.075
+        self.wander_timer = 0
+        self.wander_dir = (0, 0)
+        self.breed_cooldown = 300
+
+    def update(self, world, entities):
+        self.hunger -= 0.03
+        if self.hunger <= 0:
+            self.health -= 0.2
+            self.hunger = 0
+        if self.health <= 0:
+            self.is_dead = True
+            return
+            
+        if self.breed_cooldown > 0:
+            self.breed_cooldown -= 1
+            
+        rad = world.get_radiation_at(int(self.x), int(self.y))
+        if rad > 10.0:
+            self.health -= rad * 0.01
+
+        # 1. Flee from zombies
+        zombie = None
+        min_z_dist = 6.0
+        for ent in entities:
+            if ent.type == "zombie" and not ent.is_dead:
+                d = distance(self.x, self.y, ent.x, ent.y)
+                if d < min_z_dist:
+                    min_z_dist = d
+                    zombie = ent
+        if zombie:
+            self.state = "flee"
+            dx, dy = self.x - zombie.x, self.y - zombie.y
+            length = math.hypot(dx, dy)
+            if length > 0:
+                self.move_with_collision((dx/length)*self.speed*1.4, (dy/length)*self.speed*1.4, world)
+            return
+
+        # 2. Reproduction check (breed if fed and no cooldown)
+        if self.hunger > 80.0 and self.breed_cooldown <= 0:
+            partner = None
+            min_p_dist = 4.0
+            for ent in entities:
+                if isinstance(ent, Wolf) and ent != self and not ent.is_dead and ent.hunger > 80.0 and ent.breed_cooldown <= 0:
+                    d = distance(self.x, self.y, ent.x, ent.y)
+                    if d < min_p_dist:
+                        min_p_dist = d
+                        partner = ent
+            if partner:
+                self.state = "breed"
+                dx, dy = partner.x - self.x, partner.y - self.y
+                length = math.hypot(dx, dy)
+                if length > 0:
+                    self.move_with_collision((dx/length)*self.speed, (dy/length)*self.speed, world)
+                if min_p_dist < 0.8:
+                    # Spawn pup!
+                    entities.append(Wolf(self.x + random.uniform(-0.5, 0.5), self.y + random.uniform(-0.5, 0.5)))
+                    self.breed_cooldown = 600
+                    partner.breed_cooldown = 600
+                    self.hunger -= 40.0
+                    partner.hunger -= 40.0
+                return
+
+        # 3. Hunt prey (Animal)
+        if self.hunger < 75.0:
+            self.state = "hunt"
+            closest_prey = None
+            min_prey_dist = 10.0
+            for ent in entities:
+                if ent.type == "animal" and not ent.is_dead:
+                    d = distance(self.x, self.y, ent.x, ent.y)
+                    if d < min_prey_dist:
+                        min_prey_dist = d
+                        closest_prey = ent
+            if closest_prey:
+                dx, dy = closest_prey.x - self.x, closest_prey.y - self.y
+                length = math.hypot(dx, dy)
+                if length > 0:
+                    self.move_with_collision((dx/length)*self.speed*1.2, (dy/length)*self.speed*1.2, world)
+                if min_prey_dist < 0.8:
+                    closest_prey.is_dead = True
+                    self.hunger = min(100.0, self.hunger + 55.0)
+                    self.health = min(100.0, self.health + 20.0)
+                return
+
+        # 4. Wander
+        self.state = "wander"
+        self.wander_timer -= 1
+        if self.wander_timer <= 0:
+            angle = random.uniform(0, 2 * math.pi)
+            self.wander_dir = (math.cos(angle), math.sin(angle))
+            self.wander_timer = random.randint(60, 180)
+        self.move_with_collision(self.wander_dir[0]*self.speed, self.wander_dir[1]*self.speed, world)

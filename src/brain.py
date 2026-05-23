@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 class NeuralBrain:
-    def __init__(self, input_size=35, hidden_size=16, output_size=5, learning_rate=0.01):
+    def __init__(self, input_size=37, hidden_size=16, output_size=5, learning_rate=0.01):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size = output_size
@@ -218,5 +218,27 @@ class NeuralBrain:
         state[33] = entity.health / 100.0
         # Get radiation level at current position
         state[34] = world.get_radiation_at(int(entity.x), int(entity.y)) / 100.0
+        
+        # Relative TargetBeacon offsets (Inputs 35 and 36)
+        beacon_dx = 0.0
+        beacon_dy = 0.0
+        nearest_beacon = None
+        min_beacon_dist = 99999.0
+        
+        for chunk_list in world.entity_chunks.values():
+            for other in chunk_list:
+                if other.type == "beacon" and not other.is_dead:
+                    d = math.hypot(other.x - entity.x, other.y - entity.y)
+                    if d < min_beacon_dist:
+                        min_beacon_dist = d
+                        nearest_beacon = other
+                        
+        if nearest_beacon:
+            # Normalized relative offset (max distance is 16.0 tiles for high-res pathing)
+            beacon_dx = max(-1.0, min(1.0, (nearest_beacon.x - entity.x) / 16.0))
+            beacon_dy = max(-1.0, min(1.0, (nearest_beacon.y - entity.y) / 16.0))
+            
+        state[35] = beacon_dx
+        state[36] = beacon_dy
         
         return state

@@ -91,6 +91,9 @@ class UI:
         self.custom_name = "Android Omega"
         self.custom_role = "Gatherer"
         self.custom_temp = "Curious"
+        self.custom_solar = False
+        self.custom_shield = False
+        self.auto_reward = False
         
         self.editing_field = None  # Track if typing name or role
 
@@ -125,7 +128,7 @@ class UI:
         self.buttons["customizer_create"] = Button(WINDOW_WIDTH - SIDEBAR_WIDTH + 20, 190, 300, 34, "Create Android with custom ID", bg_color=(60, 40, 75, 200), font_size=13)
         
         # Deselect button (classic dark red border)
-        self.buttons["deselect_entity"] = Button(WINDOW_WIDTH - SIDEBAR_WIDTH + 20, 480, 300, 34, "CLOSE INSPECTOR", bg_color=(35, 15, 15), border_color=(255, 50, 50))
+        self.buttons["deselect_entity"] = Button(WINDOW_WIDTH - SIDEBAR_WIDTH + 20, 500, 300, 34, "CLOSE INSPECTOR", bg_color=(35, 15, 15), border_color=(255, 50, 50))
 
     def draw(self, surface):
         # Draw glassmorphism backgrounds for Sidebar and Bottom panel
@@ -207,8 +210,30 @@ class UI:
         draw_rounded_rect(surface, role_rect, (30, 30, 40), radius=0, border_color=role_border)
         draw_text(surface, self.custom_role, role_rect.x + 8, role_rect.y + 4, size=13)
         
+        # Checkboxes for upgrades
+        y_offset = 230
+        draw_text(surface, "Modular Hardwares:", x, y_offset, size=13, color=COLORS["ui_text_dim"])
+        
+        # Solar Panel Checkbox
+        y_offset += 20
+        solar_rect = pygame.Rect(x, y_offset, 14, 14)
+        draw_rounded_rect(surface, solar_rect, (30, 30, 40), radius=0, border_color=COLORS["ui_border"])
+        if self.custom_solar:
+            pygame.draw.line(surface, COLORS["ui_accent"], (x + 3, y_offset + 3), (x + 11, y_offset + 11), 2)
+            pygame.draw.line(surface, COLORS["ui_accent"], (x + 11, y_offset + 3), (x + 3, y_offset + 11), 2)
+        draw_text(surface, "Solar pad (+0.06/f in light)", x + 24, y_offset - 2, size=11)
+        
+        # Rad Shield Checkbox
+        y_offset += 20
+        shield_rect = pygame.Rect(x, y_offset, 14, 14)
+        draw_rounded_rect(surface, shield_rect, (30, 30, 40), radius=0, border_color=COLORS["ui_border"])
+        if self.custom_shield:
+            pygame.draw.line(surface, COLORS["ui_accent"], (x + 3, y_offset + 3), (x + 11, y_offset + 11), 2)
+            pygame.draw.line(surface, COLORS["ui_accent"], (x + 11, y_offset + 3), (x + 3, y_offset + 11), 2)
+        draw_text(surface, "Radiation deflector shield", x + 24, y_offset - 2, size=11)
+        
         # Info details
-        y_offset += 85
+        y_offset += 35
         draw_text(surface, "Select an android on map to train them.", x, y_offset, size=13, color=COLORS["ui_text_dim"])
         draw_text(surface, "Provide feedback using RLHF buttons", x, y_offset + 20, size=13, color=COLORS["ui_text_dim"])
         draw_text(surface, "to shape their behaviors in real-time.", x, y_offset + 40, size=13, color=COLORS["ui_text_dim"])
@@ -230,16 +255,43 @@ class UI:
         draw_rounded_rect(surface, h_active, (46, 204, 113), radius=0)
 
         # Battery bar
-        y_offset += 20
+        y_offset += 16
         draw_text(surface, f"Battery: {int(android.battery)}%", x, y_offset, size=12)
         b_bar_rect = pygame.Rect(x + 100, y_offset + 3, 180, 10)
         draw_rounded_rect(surface, b_bar_rect, (40, 40, 50), radius=0)
         b_active = pygame.Rect(x + 100, y_offset + 3, int(android.battery / 100.0 * 180), 10)
         draw_rounded_rect(surface, b_active, COLORS["charger"], radius=0)
+        
+        # Flashlight bar
+        y_offset += 16
+        draw_text(surface, f"Lightpad: {int(android.flashlight_battery)}%", x, y_offset, size=12)
+        f_bar_rect = pygame.Rect(x + 100, y_offset + 3, 180, 10)
+        draw_rounded_rect(surface, f_bar_rect, (40, 40, 50), radius=0)
+        f_active = pygame.Rect(x + 100, y_offset + 3, int(android.flashlight_battery / 100.0 * 180), 10)
+        draw_rounded_rect(surface, f_active, COLORS["beacon"], radius=0)
 
-        y_offset += 20
-        draw_text(surface, f"Rewards Applied: {android.rewards_count}", x, y_offset, size=13, color=COLORS["reward_green"])
-        draw_text(surface, f"Punishments Applied: {android.punishments_count}", x + 160, y_offset, size=13, color=COLORS["punish_red"])
+        # Show equipped modules
+        y_offset += 16
+        modules_text = []
+        if android.has_solar_panel:
+            modules_text.append("SOLAR")
+        if android.has_rad_shield:
+            modules_text.append("RAD-SHIELD")
+        mod_str = " | ".join(modules_text) if modules_text else "NONE"
+        draw_text(surface, f"Hardware: {mod_str}", x, y_offset, size=11, color=COLORS["ui_text_dim"])
+
+        y_offset += 16
+        draw_text(surface, f"Rewards Applied: {android.rewards_count}", x, y_offset, size=12, color=COLORS["reward_green"])
+        draw_text(surface, f"Punish Applied: {android.punishments_count}", x + 160, y_offset, size=12, color=COLORS["punish_red"])
+        
+        # Auto-Reward Checkbox
+        y_offset += 18
+        ar_rect = pygame.Rect(x, y_offset, 14, 14)
+        draw_rounded_rect(surface, ar_rect, (30, 30, 40), radius=0, border_color=COLORS["ui_border"])
+        if self.auto_reward:
+            pygame.draw.line(surface, COLORS["ui_accent"], (x + 3, y_offset + 3), (x + 11, y_offset + 11), 2)
+            pygame.draw.line(surface, COLORS["ui_accent"], (x + 11, y_offset + 3), (x + 3, y_offset + 11), 2)
+        draw_text(surface, "Auto-Train to closest Beacon", x + 24, y_offset - 2, size=11, color=COLORS["ui_text"])
         
         # Neural Network Graph Visualizer in Sidebar
         self.draw_neural_net_visualizer(surface, WINDOW_WIDTH - SIDEBAR_WIDTH + 20, 310)
@@ -391,10 +443,27 @@ class UI:
         draw_text(surface, "MINI-MAP (3200x3200)", mx, my - 18, size=12, color=COLORS["ui_text_dim"])
 
     def handle_click(self, mouse_pos):
+        # Click on paintbrush toolbar slots
+        tb_x, tb_y = 20, 20
+        slot_size = 38
+        gap = 10
+        from src.config import TILE_WALL, TILE_GRASS, TILE_WATER, TILE_DIRT, TILE_WASTELAND, TILE_FLOOR
+        slots_types = [TILE_WALL, TILE_GRASS, TILE_WATER, TILE_DIRT, TILE_WASTELAND, TILE_FLOOR, "beacon"]
+        for i in range(7):
+            curr_x = tb_x + 10 + i * (slot_size + gap)
+            slot_rect = pygame.Rect(curr_x, tb_y + 10, slot_size, slot_size)
+            if slot_rect.collidepoint(mouse_pos):
+                self.game.active_brush_tile = slots_types[i]
+                return True
+
         # Click on text inputs in customizer
         x = WINDOW_WIDTH - SIDEBAR_WIDTH + 20
         name_rect = pygame.Rect(x, 103, 300, 24)
-        role_rect = pygame.Rect(x, 171, 300, 24)
+        role_rect = pygame.Rect(x, 153, 300, 24)
+        
+        # Checkbox regions in customizer
+        solar_rect = pygame.Rect(x, 250, 240, 16)
+        shield_rect = pygame.Rect(x, 270, 240, 16)
         
         if not self.game.selected_android:
             if name_rect.collidepoint(mouse_pos):
@@ -403,8 +472,21 @@ class UI:
             elif role_rect.collidepoint(mouse_pos):
                 self.editing_field = "role"
                 return True
+            elif solar_rect.collidepoint(mouse_pos):
+                self.custom_solar = not self.custom_solar
+                return True
+            elif shield_rect.collidepoint(mouse_pos):
+                self.custom_shield = not self.custom_shield
+                return True
             else:
                 self.editing_field = None
+                
+        # Auto-reward checkbox click
+        if self.game.selected_android:
+            ar_rect_click = pygame.Rect(x, 187, 240, 16) # y offset calculation matching visualizer
+            if ar_rect_click.collidepoint(mouse_pos):
+                self.auto_reward = not self.auto_reward
+                return True
                 
         # Handle regular buttons
         for key, btn in self.buttons.items():
@@ -486,6 +568,9 @@ class UI:
         elif key == "customizer_create":
             # Spawn a customized android
             self.game.spawn_customized_android(self.custom_name, self.custom_role, "Custom")
+            if self.game.selected_android:
+                self.game.selected_android.has_solar_panel = self.custom_solar
+                self.game.selected_android.has_rad_shield = self.custom_shield
             
         elif key == "deselect_entity":
             self.game.selected_entity = None
@@ -529,14 +614,15 @@ class UI:
         """Draws a floating toolbar at the top-left showing the available paintbrush slots."""
         from src.config import TILE_WALL, TILE_GRASS, TILE_WATER, TILE_DIRT, TILE_WASTELAND, TILE_FLOOR
         
-        # Toolbar slots configurations
+        # Toolbar slots configurations (Includes Beacon Slot 7)
         slots = [
             (TILE_WALL, "Wall", "1"),
             (TILE_GRASS, "Grass", "2"),
             (TILE_WATER, "Water", "3"),
             (TILE_DIRT, "Dirt", "4"),
             (TILE_WASTELAND, "Rad Soil", "5"),
-            (TILE_FLOOR, "Floor", "6")
+            (TILE_FLOOR, "Floor", "6"),
+            ("beacon_brush", "Beacon", "7")
         ]
         
         slot_size = 38
@@ -557,7 +643,7 @@ class UI:
             slot_rect = pygame.Rect(curr_x, y + 10, slot_size, slot_size)
             
             # Highlight selected slot
-            is_selected = (self.game.active_brush_tile == tile_id)
+            is_selected = (self.game.active_brush_tile == tile_id or (tile_id == "beacon_brush" and self.game.active_brush_tile == "beacon"))
             
             # Outer slot frame
             border_col = COLORS["ui_accent"] if is_selected else COLORS["ui_border"]
@@ -566,7 +652,8 @@ class UI:
             
             # Inner tile preview block
             preview_rect = pygame.Rect(curr_x + 6, y + 16, slot_size - 12, slot_size - 12)
-            pygame.draw.rect(surface, COLORS[tile_id], preview_rect)
+            color = COLORS["beacon"] if tile_id == "beacon_brush" else COLORS[tile_id]
+            pygame.draw.rect(surface, color, preview_rect)
             
             # Hotkey label (top right corner of slot)
             draw_text(surface, hotkey, curr_x + slot_size - 5, y + 12, size=9, color=COLORS["ui_accent"], align="right")
@@ -577,7 +664,7 @@ class UI:
             curr_x += slot_size + gap
             
         # Draw label next to toolbar
-        draw_text(surface, "Paintbrush Toolbar (Keys 1-6)", x + 10, y + h + 4, size=11, color=COLORS["ui_text_dim"])
+        draw_text(surface, "Paintbrush Toolbar (Keys 1-7)", x + 10, y + h + 4, size=11, color=COLORS["ui_text_dim"])
 
     def draw_general_inspector(self, surface, x):
         ent = self.game.selected_entity
@@ -591,7 +678,9 @@ class UI:
             "zombie": "MUTANT: ZOMBIE",
             "animal": "FAUNA: WILD ANIMAL",
             "food": "RESOURCE: FOOD SCRAPS",
-            "charger": "INFRASTRUCTURE: CHARGER"
+            "charger": "INFRASTRUCTURE: CHARGER",
+            "wolf": "PREDATOR: WOLF",
+            "beacon": "TACTICAL: TARGET BEACON"
         }
         title_text = titles.get(ent.type, "ENTITY STATUS")
         draw_text(surface, title_text, x, 55, size=15, color=COLORS["ui_accent"])
@@ -616,7 +705,8 @@ class UI:
             
         # Hunger bar (if applicable)
         if hasattr(ent, "hunger"):
-            draw_text(surface, f"Energy: {int(ent.hunger)}%", x, y_offset, size=12)
+            label_h = "Hunger:" if ent.type == "wolf" else "Energy:"
+            draw_text(surface, f"{label_h} {int(ent.hunger)}%", x, y_offset, size=12)
             b_bar_rect = pygame.Rect(x + 90, y_offset + 3, 190, 10)
             draw_rounded_rect(surface, b_bar_rect, (40, 40, 50), radius=0)
             b_active = pygame.Rect(x + 90, y_offset + 3, int(max(0, ent.hunger) / 100.0 * 190), 10)
@@ -647,6 +737,14 @@ class UI:
             if ent.target:
                 draw_text(surface, f"Targeting: {ent.target.type.upper()}", x, y_offset, size=13, color=COLORS["ui_accent"])
                 y_offset += 25
+                
+        elif ent.type == "wolf":
+            if ent.breed_cooldown > 0:
+                breed_txt = f"Mating Cooldown: {ent.breed_cooldown//60}s"
+            else:
+                breed_txt = "Ready to Breed"
+            draw_text(surface, f"Mating: {breed_txt}", x, y_offset, size=13, color=COLORS["ui_accent"])
+            y_offset += 25
                 
         elif ent.type == "charger":
             draw_text(surface, "Output: 100W Constant", x, y_offset, size=13, color=COLORS["ui_text_dim"])

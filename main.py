@@ -8,10 +8,11 @@ from src.config import (
     SIDEBAR_WIDTH, BOTTOM_PANEL_HEIGHT, GRID_WIDTH, GRID_HEIGHT,
     TILE_GRASS, TILE_DIRT, TILE_WATER, TILE_WALL, TILE_WASTELAND, TILE_FLOOR, TILE_ROAD,
     STARTING_HUMANS, STARTING_ANIMALS, STARTING_ZOMBIES, STARTING_ANDROIDS, STARTING_CHARGERS, STARTING_FOOD,
+    STARTING_WOLVES,
     PRESET_DEFAULT, PRESET_NUCLEAR, PRESET_ZOMBIE, PRESET_NO_SUN, PRESET_NO_HUMANS, PRESET_NO_ANIMALS
 )
 from src.world import World
-from src.entities import Human, Zombie, Animal, NeuralAndroid, Food, Charger
+from src.entities import Human, Zombie, Animal, NeuralAndroid, Food, Charger, Wolf, TargetBeacon
 from src.ui import UI
 from src.utils import draw_text, screen_to_world
 
@@ -93,6 +94,8 @@ class GameController:
         if preset != PRESET_NO_ANIMALS:
             # Animals
             self.spawn_random_entities(Animal, STARTING_ANIMALS)
+            # Wolves
+            self.spawn_random_entities(Wolf, STARTING_WOLVES)
             
         # Zombies
         if preset == PRESET_ZOMBIE:
@@ -241,6 +244,31 @@ class GameController:
             if ent.is_dead:
                 dead_entities.append(ent)
                 
+        # Auto-Reward Navigation training loop
+        if self.ui.auto_reward and self.selected_android and not self.selected_android.is_dead:
+            nearest_beacon = None
+            min_beacon_dist = 99999.0
+            for ent in self.entities:
+                if ent.type == "beacon" and not ent.is_dead:
+                    d = math.hypot(ent.x - self.selected_android.x, ent.y - self.selected_android.y)
+                    if d < min_beacon_dist:
+                        min_beacon_dist = d
+                        nearest_beacon = ent
+            if nearest_beacon:
+                if hasattr(self.selected_android, "last_beacon_dist") and self.selected_android.last_beacon_dist is not None:
+                    prev_d = self.selected_android.last_beacon_dist
+                    if min_beacon_dist < prev_d:
+                        self.selected_android.brain.apply_rlhf_feedback(0.2)
+                        self.selected_android.rewards_count += 1
+                    elif min_beacon_dist > prev_d:
+                        self.selected_android.brain.apply_rlhf_feedback(-0.1)
+                        self.selected_android.punishments_count += 1
+                self.selected_android.last_beacon_dist = min_beacon_dist
+            else:
+                self.selected_android.last_beacon_dist = None
+        elif self.selected_android:
+            self.selected_android.last_beacon_dist = None
+                
         # Handle zombified humans
         for ent in dead_entities:
             self.entities.remove(ent)
@@ -372,14 +400,24 @@ class GameController:
             pixel_x = ent.x * TILE_SIZE
             pixel_y = ent.y * TILE_SIZE
             if view_rect.collidepoint(pixel_x, pixel_y):
+                # Suppress light if entity flashlight battery is dead
+                if ent.type in ["human", "android"] and getattr(ent, "flashlight_battery", 100.0) <= 0.0:
+                    continue
                 # Light Radius based on entity type
-                radius = 70
                 if ent == self.selected_android:
-                    radius = 160  # Android light beam is stronger
+                    radius = 160  # Selected Android light beam is stronger
+                elif ent.type == "android":
+                    radius = 100
+                elif ent.type == "human":
+                    radius = 70
                 elif ent.type == "zombie":
                     radius = 35   # Zombies glow slightly red
                 elif ent.type == "charger":
                     radius = 50
+                elif ent.type == "beacon":
+                    radius = 90   # Beacon glows neon cyan
+                else:
+                    continue
                 emitters.append((ent, pixel_x, pixel_y, radius))
                 
         # Draw transparent holes in mask
@@ -434,6 +472,18 @@ class GameController:
             return True
             
         # 2. Paint world tiles if clicked empty space
+        if self.active_brush_tile == "beacon":
+            # Spawn a TargetBeacon if there isn't one close by on this tile coordinate
+            tx, ty = int(wx), int(wy)
+            already_has_beacon = False
+            for ent in self.entities:
+                if ent.type == "beacon" and int(ent.x) == tx and int(ent.y) == ty and not ent.is_dead:
+                    already_has_beacon = True
+                    break
+            if not already_has_beacon:
+                self.entities.append(TargetBeacon(tx, ty))
+            return False
+
         # Edit tile type in world grid
         self.world.set_tile(wx, wy, self.active_brush_tile)
         
@@ -460,6 +510,17 @@ class GameController:
             return
             
         wx, wy = screen_to_world(mx, my, self.camera_x, self.camera_y)
+        if self.active_brush_tile == "beacon":
+            tx, ty = int(wx), int(wy)
+            already_has_beacon = False
+            for ent in self.entities:
+                if ent.type == "beacon" and int(ent.x) == tx and int(ent.y) == ty and not ent.is_dead:
+                    already_has_beacon = True
+                    break
+            if not already_has_beacon:
+                self.entities.append(TargetBeacon(tx, ty))
+            return
+
         if self.world.get_tile(wx, wy) != self.active_brush_tile:
             self.world.set_tile(wx, wy, self.active_brush_tile)
             
@@ -527,6 +588,8 @@ class GameController:
                         self.active_brush_tile = TILE_WASTELAND
                     elif event.key == pygame.K_6:
                         self.active_brush_tile = TILE_FLOOR
+                    elif event.key == pygame.K_7:
+                        self.active_brush_tile = "beacon"
                         
                 # Sliders handling
                 self.ui.sliders["game_speed"].handle_event(event, mouse_pos)

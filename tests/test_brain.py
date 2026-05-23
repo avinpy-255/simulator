@@ -68,5 +68,35 @@ class TestNeuralBrain(unittest.TestCase):
         # Probability of action 2 should be LOWER
         self.assertLess(probs_after[action], probs_before[action])
 
+    def test_default_dimensions_and_beacons(self):
+        """Test default 37-dimensional state extraction and target beacon relative coordinates."""
+        # Initialize default brain
+        default_brain = NeuralBrain()
+        self.assertEqual(default_brain.input_size, 37)
+        self.assertEqual(default_brain.output_size, 5)
+        
+        # Mock world and entity
+        from src.world import World
+        from src.entities import NeuralAndroid, TargetBeacon
+        world = World()
+        
+        android = NeuralAndroid(10, 10)
+        # Place a target beacon at (15, 6)
+        beacon = TargetBeacon(15, 6)
+        world.update_entity_chunks([android, beacon])
+        
+        # Get sensor state
+        state = default_brain.get_sensors_from_world(android, world)
+        
+        # Verify shape
+        self.assertEqual(state.shape, (37,))
+        
+        # Inputs 35 and 36 must be relative normalized coordinates
+        # nearest beacon is (15, 6), android is (10, 10)
+        # dx = (15 - 10) / 16.0 = 5 / 16.0 = 0.3125
+        # dy = (6 - 10) / 16.0 = -4 / 16.0 = -0.25
+        self.assertAlmostEqual(state[35], 0.3125, places=5)
+        self.assertAlmostEqual(state[36], -0.25, places=5)
+
 if __name__ == "__main__":
     unittest.main()
