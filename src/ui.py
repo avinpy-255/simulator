@@ -94,6 +94,8 @@ class UI:
         self.custom_solar = False
         self.custom_shield = False
         self.auto_reward = False
+        self.autopilot = False
+        self.active_tab = "creator"
         
         self.editing_field = None  # Track if typing name or role
 
@@ -149,12 +151,15 @@ class UI:
         draw_text(surface, f"Androids: {self.game.get_entity_count('android')}", stats_x, WINDOW_HEIGHT - BOTTOM_PANEL_HEIGHT + 120, size=13)
 
         # Draw default bottom controls
-        for btn in self.buttons.values():
+        for key, btn in self.buttons.items():
             # Skip drawing RLHF controls if no android is selected
             if (btn.text.startswith("REWARD") or btn.text.startswith("PUNISH")) and not self.game.selected_android:
                 continue
             # Skip drawing Close Inspector button if no entity is selected
             if btn.text == "CLOSE INSPECTOR" and not self.game.selected_entity:
+                continue
+            # Skip drawing Create button if active tab is not creator
+            if key == "customizer_create" and (self.game.selected_android or self.game.selected_entity or self.active_tab != "creator"):
                 continue
             btn.draw(surface)
             
@@ -182,30 +187,48 @@ class UI:
             # General Entity Inspector
             self.draw_general_inspector(surface, x)
         else:
-            # Android Creator Customizer Panel
-            self.draw_android_customizer(surface, x)
+            # Draw tab buttons at y = 52
+            tab_creator_rect = pygame.Rect(x, 52, 140, 24)
+            tab_rankings_rect = pygame.Rect(x + 160, 52, 140, 24)
+            
+            # Creator tab draw
+            cr_bg = COLORS["ui_button"] if self.active_tab == "creator" else (20, 20, 25)
+            cr_br = COLORS["ui_accent"] if self.active_tab == "creator" else COLORS["ui_border"]
+            draw_rounded_rect(surface, tab_creator_rect, cr_bg, radius=0, border_color=cr_br)
+            draw_text(surface, "1: CREATOR", tab_creator_rect.centerx, tab_creator_rect.centery - 6, size=11, align="center")
+            
+            # Rankings tab draw
+            rk_bg = COLORS["ui_button"] if self.active_tab == "rankings" else (20, 20, 25)
+            rk_br = COLORS["ui_accent"] if self.active_tab == "rankings" else COLORS["ui_border"]
+            draw_rounded_rect(surface, tab_rankings_rect, rk_bg, radius=0, border_color=rk_br)
+            draw_text(surface, "2: LEADERBOARD", tab_rankings_rect.centerx, tab_rankings_rect.centery - 6, size=11, align="center")
+            
+            if self.active_tab == "creator":
+                # Android Creator Customizer Panel
+                self.draw_android_customizer(surface, x)
+            else:
+                # Android Rankings/Leaderboard Panel
+                self.draw_android_leaderboard(surface, x)
             
         # Draw Mini-Map at the bottom right corner of the sidebar
         self.draw_minimap(surface)
 
     def draw_android_customizer(self, surface, x):
-        draw_text(surface, "ANDROID CREATOR & CUSTOMIZER", x, 55, size=15, color=COLORS["ui_text"])
+        draw_text(surface, "ANDROID CREATOR & CUSTOMIZER", x, 90, size=15, color=COLORS["ui_text"])
         
         # Draw input boxes for name and role
-        y_offset = 85
         box_width = 300
         
         # Name Input Box
-        draw_text(surface, "Name (Click to edit):", x, y_offset, size=13, color=COLORS["ui_text_dim"])
-        name_rect = pygame.Rect(x, y_offset + 18, box_width, 24)
+        draw_text(surface, "Name (Click to edit):", x, 120, size=13, color=COLORS["ui_text_dim"])
+        name_rect = pygame.Rect(x, 138, box_width, 24)
         name_border = COLORS["ui_accent"] if self.editing_field == "name" else COLORS["ui_border"]
         draw_rounded_rect(surface, name_rect, (30, 30, 40), radius=0, border_color=name_border)
         draw_text(surface, self.custom_name, name_rect.x + 8, name_rect.y + 4, size=13)
         
         # Role Input Box
-        y_offset += 50
-        draw_text(surface, "Role:", x, y_offset, size=13, color=COLORS["ui_text_dim"])
-        role_rect = pygame.Rect(x, y_offset + 18, box_width, 24)
+        draw_text(surface, "Role:", x, 170, size=13, color=COLORS["ui_text_dim"])
+        role_rect = pygame.Rect(x, 188, box_width, 24)
         role_border = COLORS["ui_accent"] if self.editing_field == "role" else COLORS["ui_border"]
         draw_rounded_rect(surface, role_rect, (30, 30, 40), radius=0, border_color=role_border)
         draw_text(surface, self.custom_role, role_rect.x + 8, role_rect.y + 4, size=13)
@@ -232,11 +255,57 @@ class UI:
             pygame.draw.line(surface, COLORS["ui_accent"], (x + 11, y_offset + 3), (x + 3, y_offset + 11), 2)
         draw_text(surface, "Radiation deflector shield", x + 24, y_offset - 2, size=11)
         
+        # Auto-Pilot Checkbox
+        y_offset += 20
+        ap_rect = pygame.Rect(x, y_offset, 14, 14)
+        draw_rounded_rect(surface, ap_rect, (30, 30, 40), radius=0, border_color=COLORS["ui_border"])
+        if self.autopilot:
+            pygame.draw.line(surface, COLORS["ui_accent"], (x + 3, y_offset + 3), (x + 11, y_offset + 11), 2)
+            pygame.draw.line(surface, COLORS["ui_accent"], (x + 11, y_offset + 3), (x + 3, y_offset + 11), 2)
+        draw_text(surface, "Auto-Pilot (Respawn on Death)", x + 24, y_offset - 2, size=11)
+        
         # Info details
-        y_offset += 35
-        draw_text(surface, "Select an android on map to train them.", x, y_offset, size=13, color=COLORS["ui_text_dim"])
-        draw_text(surface, "Provide feedback using RLHF buttons", x, y_offset + 20, size=13, color=COLORS["ui_text_dim"])
-        draw_text(surface, "to shape their behaviors in real-time.", x, y_offset + 40, size=13, color=COLORS["ui_text_dim"])
+        y_offset += 30
+        draw_text(surface, "Select an android on map to train them.", x, y_offset, size=12, color=COLORS["ui_text_dim"])
+        draw_text(surface, "Provide feedback using RLHF buttons", x, y_offset + 18, size=12, color=COLORS["ui_text_dim"])
+        draw_text(surface, "to shape their behaviors in real-time.", x, y_offset + 36, size=12, color=COLORS["ui_text_dim"])
+
+    def draw_android_leaderboard(self, surface, x):
+        draw_text(surface, "ANDROID LIFE LEADERBOARDS", x, 90, size=15, color=COLORS["ui_accent"])
+        
+        # Draw table headers
+        y_offset = 120
+        draw_text(surface, "RANK  NAME          LIFETIME  STATUS", x, y_offset, size=12, color=COLORS["ui_text_dim"])
+        pygame.draw.line(surface, COLORS["ui_border"], (x, y_offset + 16), (x + 300, y_offset + 16), 1)
+        
+        y_offset += 24
+        
+        # Sort and filter rankings
+        sorted_rankings = sorted(self.game.android_rankings, key=lambda val: val["survival_ticks"], reverse=True)
+        
+        for i, entry in enumerate(sorted_rankings[:8]):
+            # Convert ticks to seconds
+            lifespan = entry["survival_ticks"] / 60.0
+            
+            # Format row
+            rank_str = f"{i+1}."
+            name_str = f"{entry['name'][:10]:<10}"
+            life_str = f"{lifespan:.1f}s"
+            
+            # Status colors
+            status_text = entry["status"]
+            status_color = COLORS["reward_green"] if status_text == "ALIVE" else COLORS["punish_red"]
+            
+            # Draw row items
+            draw_text(surface, rank_str, x, y_offset, size=11)
+            draw_text(surface, name_str, x + 30, y_offset, size=11)
+            draw_text(surface, life_str, x + 130, y_offset, size=11)
+            draw_text(surface, status_text, x + 230, y_offset, size=11, color=status_color)
+            
+            y_offset += 20
+            
+        if not sorted_rankings:
+            draw_text(surface, "NO TELEMETRY RECORDED.", x + 40, y_offset + 30, size=13, color=COLORS["ui_text_dim"])
 
     def draw_android_inspector(self, surface, x):
         android = self.game.selected_android
@@ -456,16 +525,26 @@ class UI:
                 self.game.active_brush_tile = slots_types[i]
                 return True
 
-        # Click on text inputs in customizer
+        # Check tab clicks in sidebar
         x = WINDOW_WIDTH - SIDEBAR_WIDTH + 20
-        name_rect = pygame.Rect(x, 103, 300, 24)
-        role_rect = pygame.Rect(x, 153, 300, 24)
-        
-        # Checkbox regions in customizer
+        if not self.game.selected_android and not self.game.selected_entity:
+            tab_creator_rect = pygame.Rect(x, 52, 140, 24)
+            tab_rankings_rect = pygame.Rect(x + 160, 52, 140, 24)
+            if tab_creator_rect.collidepoint(mouse_pos):
+                self.active_tab = "creator"
+                return True
+            elif tab_rankings_rect.collidepoint(mouse_pos):
+                self.active_tab = "rankings"
+                return True
+
+        # Click on text inputs and checkboxes in customizer (Creator Tab)
+        name_rect = pygame.Rect(x, 138, 300, 24)
+        role_rect = pygame.Rect(x, 188, 300, 24)
         solar_rect = pygame.Rect(x, 250, 240, 16)
         shield_rect = pygame.Rect(x, 270, 240, 16)
+        autopilot_rect = pygame.Rect(x, 290, 240, 16)
         
-        if not self.game.selected_android:
+        if not self.game.selected_android and not self.game.selected_entity and self.active_tab == "creator":
             if name_rect.collidepoint(mouse_pos):
                 self.editing_field = "name"
                 return True
@@ -477,6 +556,9 @@ class UI:
                 return True
             elif shield_rect.collidepoint(mouse_pos):
                 self.custom_shield = not self.custom_shield
+                return True
+            elif autopilot_rect.collidepoint(mouse_pos):
+                self.autopilot = not self.autopilot
                 return True
             else:
                 self.editing_field = None
@@ -566,6 +648,8 @@ class UI:
                 self.game.selected_android.punishments_count += 1
                 
         elif key == "customizer_create":
+            if self.game.selected_android or self.game.selected_entity or self.active_tab != "creator":
+                return
             # Spawn a customized android
             self.game.spawn_customized_android(self.custom_name, self.custom_role, "Custom")
             if self.game.selected_android:

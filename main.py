@@ -44,6 +44,7 @@ class GameController:
         
         # Entities list
         self.entities = []
+        self.android_rankings = []
         self.selected_android = None
         self.selected_entity = None
         self.suppress_painting = False
@@ -77,12 +78,14 @@ class GameController:
         self.world = World(preset=preset)
         self.chunk_surfaces.clear()
         self.entities.clear()
+        self.android_rankings.clear()
         
         self.setup_preset_world(preset)
 
     def clear_world(self):
         """Removes all entities and walls, resetting the active chunk textures."""
         self.entities.clear()
+        self.android_rankings.clear()
         self.selected_android = None
         self.selected_entity = None
         self.dragged_entity = None
@@ -141,7 +144,18 @@ class GameController:
                     # Give randomized names to Androids
                     names = ["Delta-9", "Echo-7", "Nexus-X", "Sentry-3", "Rover-0"]
                     roles = ["Explorer", "Worker", "Guard", "Farmer"]
-                    self.entities.append(NeuralAndroid(rx, ry, name=random.choice(names), role=random.choice(roles)))
+                    name = random.choice(names)
+                    role = random.choice(roles)
+                    new_android = NeuralAndroid(rx, ry, name=name, role=role)
+                    self.entities.append(new_android)
+                    self.android_rankings.append({
+                        "name": name,
+                        "role": role,
+                        "survival_ticks": 0,
+                        "status": "ALIVE",
+                        "rewards": 0,
+                        "ref": new_android
+                    })
                 else:
                     self.entities.append(class_type(rx, ry))
 
@@ -153,7 +167,20 @@ class GameController:
         elif ent_type == "zombie":
             self.entities.append(Zombie(world_cx, world_cy))
         elif ent_type == "android":
-            self.entities.append(NeuralAndroid(world_cx, world_cy))
+            names = ["Custom-X", "Unit-4", "Beta-5", "Alpha-2"]
+            roles = ["Sentry", "Worker", "Explorer"]
+            name = random.choice(names)
+            role = random.choice(roles)
+            new_android = NeuralAndroid(world_cx, world_cy, name=name, role=role)
+            self.entities.append(new_android)
+            self.android_rankings.append({
+                "name": name,
+                "role": role,
+                "survival_ticks": 0,
+                "status": "ALIVE",
+                "rewards": 0,
+                "ref": new_android
+            })
         elif ent_type == "charger":
             self.entities.append(Charger(world_cx, world_cy))
             # Invalidate chunk surface cache
@@ -167,6 +194,14 @@ class GameController:
         new_android = NeuralAndroid(world_cx, world_cy, name=name, role=role, temperament=temperament)
         self.entities.append(new_android)
         self.selected_android = new_android
+        self.android_rankings.append({
+            "name": name,
+            "role": role,
+            "survival_ticks": 0,
+            "status": "ALIVE",
+            "rewards": 0,
+            "ref": new_android
+        })
 
     def handle_keyboard_camera(self):
         """Moves camera based on continuous keyboard state updates."""
@@ -259,6 +294,12 @@ class GameController:
             ent.update(self.world, self.entities)
             if ent.is_dead:
                 dead_entities.append(ent)
+
+        # Update survival ticks for active androids in rankings
+        for entry in self.android_rankings:
+            if entry["status"] == "ALIVE" and not entry["ref"].is_dead:
+                entry["survival_ticks"] += 1
+                entry["rewards"] = entry["ref"].rewards_count
                 
         # Auto-Reward Navigation training loop
         if self.ui.auto_reward and self.selected_android and not self.selected_android.is_dead:
@@ -290,6 +331,21 @@ class GameController:
             self.entities.remove(ent)
             if ent == self.selected_android:
                 self.selected_android = None
+                
+                # Auto-pilot mode check
+                if self.ui.autopilot:
+                    self.spawn_customized_android(self.ui.custom_name, self.ui.custom_role, "Custom")
+                    if self.selected_android:
+                        self.selected_android.has_solar_panel = self.ui.custom_solar
+                        self.selected_android.has_rad_shield = self.ui.custom_shield
+                    self.ui.auto_reward = True
+                
+            # If an android dies, mark it in rankings
+            if isinstance(ent, NeuralAndroid):
+                for entry in self.android_rankings:
+                    if entry["ref"] == ent:
+                        entry["status"] = "DEAD"
+                        break
                 
             # If a human died of zombie infection, spawn a zombie!
             if isinstance(ent, Human) and ent.infection_timer >= 0 and ent.health <= 0:
