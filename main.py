@@ -13,7 +13,7 @@ from src.config import (
 )
 from src.world import World
 from src.entities import Human, Zombie, Animal, NeuralAndroid, Food, Charger, Wolf, TargetBeacon
-from src.ui import UI
+from src.ui import UI, Button
 from src.utils import draw_text, screen_to_world
 
 class GameController:
@@ -51,6 +51,19 @@ class GameController:
         
         # Cached chunk surfaces to prevent redraw overhead
         self.chunk_surfaces = {}
+        
+        # Title screen state
+        self.in_title_screen = True
+        
+        # Title Screen Buttons
+        cx = WINDOW_WIDTH // 2
+        self.title_buttons = {
+            "start": Button(cx - 150, 200, 300, 40, "ENTER SANDBOX", bg_color=(15, 35, 15), border_color=(0, 255, 0), font_size=14),
+            "preset_zombie": Button(cx - 150, 255, 300, 40, "ZOMBIE OUTBREAK PRESET", bg_color=(15, 35, 15), border_color=(255, 165, 0), font_size=14),
+            "preset_nuclear": Button(cx - 150, 310, 300, 40, "NUCLEAR WINTER PRESET", bg_color=(15, 35, 15), border_color=(255, 165, 0), font_size=14),
+            "preset_no_sun": Button(cx - 150, 365, 300, 40, "SUNLESS DARKNESS PRESET", bg_color=(15, 35, 15), border_color=(255, 165, 0), font_size=14),
+            "exit": Button(cx - 150, 420, 300, 40, "SHUTDOWN TERMINAL", bg_color=(35, 15, 15), border_color=(255, 50, 50), font_size=14)
+        }
         
         # Spawn initial entities
         self.setup_preset_world(self.world.preset)
@@ -179,6 +192,9 @@ class GameController:
 
     def update(self):
         """Updates physics ticks, state updates, and simulation entities."""
+        if self.in_title_screen:
+            return
+            
         # Auto-follow selected android with camera if it moves near viewport margins
         keys = pygame.key.get_pressed()
         manual_keys = [pygame.K_a, pygame.K_d, pygame.K_w, pygame.K_s, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_UP, pygame.K_DOWN]
@@ -297,6 +313,10 @@ class GameController:
                             del self.chunk_surfaces[(cx, cy)]
 
     def draw(self):
+        if self.in_title_screen:
+            self.draw_title_screen()
+            return
+            
         self.screen.fill((10, 10, 12))
         
         # 1. Render visible grid chunks
@@ -334,6 +354,60 @@ class GameController:
         
         # 5. Draw UI panels
         self.ui.draw(self.screen)
+        
+        pygame.display.flip()
+
+    def draw_title_screen(self):
+        # Fill screen with dark base
+        self.screen.fill((5, 10, 5))
+        
+        # Draw a beautiful retro scrolling matrix-like grid in title screen
+        time_ms = pygame.time.get_ticks()
+        grid_offset = int(time_ms * 0.05) % 24
+        for x in range(0, WINDOW_WIDTH, 24):
+            pygame.draw.line(self.screen, (0, 20, 0), (x, 0), (x, WINDOW_HEIGHT), 1)
+        for y in range(grid_offset, WINDOW_HEIGHT, 24):
+            pygame.draw.line(self.screen, (0, 20, 0), (0, y), (WINDOW_WIDTH, y), 1)
+            
+        # Draw central terminal box
+        cx = WINDOW_WIDTH // 2
+        cy = WINDOW_HEIGHT // 2
+        terminal_rect = pygame.Rect(cx - 280, cy - 250, 560, 500)
+        
+        # Transparent dark green back panel
+        back_surf = pygame.Surface((560, 500), pygame.SRCALPHA)
+        back_surf.fill((5, 15, 5, 230))
+        self.screen.blit(back_surf, (cx - 280, cy - 250))
+        
+        # Border
+        pygame.draw.rect(self.screen, COLORS["ui_border"], terminal_rect, width=2)
+        
+        # Draw titles
+        draw_text(self.screen, "N E X U S", cx, cy - 220, size=54, color=COLORS["ui_text"], align="center")
+        draw_text(self.screen, "NEURAL SURVIVAL SANDBOX v2.0", cx, cy - 165, size=15, color=COLORS["ui_accent"], align="center")
+        
+        # Draw small separator line
+        pygame.draw.line(self.screen, COLORS["ui_border"], (cx - 220, cy - 145), (cx + 220, cy - 145), 1)
+        
+        # Draw decorative system status text
+        draw_text(self.screen, "SYSTEM DIAGNOSTICS: ONLINE", cx - 220, cy - 130, size=12, color=COLORS["ui_text_dim"])
+        draw_text(self.screen, "NEURAL INTERFACE: READY", cx + 220, cy - 130, size=12, color=COLORS["ui_text_dim"], align="right")
+        
+        # Draw Title Buttons
+        mouse_pos = pygame.mouse.get_pos()
+        for btn in self.title_buttons.values():
+            btn.check_hover(mouse_pos)
+            btn.draw(self.screen)
+            
+        # Draw scanlines overlay
+        for y in range(0, WINDOW_HEIGHT, 4):
+            pygame.draw.line(self.screen, (0, 5, 0), (0, y), (WINDOW_WIDTH, y), 1)
+            
+        # Draw retro blinking terminal prompt
+        prompt_text = "SECURE TERMINAL ACCESS > PRE-BOOT COMPLETE."
+        if int(time_ms / 400) % 2 == 0:
+            prompt_text += " _"
+        draw_text(self.screen, prompt_text, cx, cy + 220, size=12, color=COLORS["ui_accent"], align="center")
         
         pygame.display.flip()
 
@@ -538,6 +612,32 @@ class GameController:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                    
+                # Title screen event interception
+                if self.in_title_screen:
+                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                        if self.title_buttons["start"].rect.collidepoint(mouse_pos):
+                            self.in_title_screen = False
+                            self.paused = False
+                        elif self.title_buttons["preset_zombie"].rect.collidepoint(mouse_pos):
+                            self.change_preset(PRESET_ZOMBIE)
+                            self.in_title_screen = False
+                            self.paused = False
+                        elif self.title_buttons["preset_nuclear"].rect.collidepoint(mouse_pos):
+                            self.change_preset(PRESET_NUCLEAR)
+                            self.in_title_screen = False
+                            self.paused = False
+                        elif self.title_buttons["preset_no_sun"].rect.collidepoint(mouse_pos):
+                            self.change_preset(PRESET_NO_SUN)
+                            self.in_title_screen = False
+                            self.paused = False
+                        elif self.title_buttons["exit"].rect.collidepoint(mouse_pos):
+                            running = False
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key in [pygame.K_SPACE, pygame.K_RETURN]:
+                            self.in_title_screen = False
+                            self.paused = False
+                    continue
                     
                 # UI Inputs typing handler
                 if self.ui.editing_field:
