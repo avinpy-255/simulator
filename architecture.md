@@ -83,6 +83,13 @@ A suite of 5 distinct simulation use-cases and modules have been added to expand
 *   **Mouse Interaction**: The floating toolbar is now clickable; you can select brush tools by clicking on their respective slot previews or pressing keys `1` through `7`.
 *   **Visual Highlights**: Highlights bounding boxes in the customizer text fields (`Name` and `Role`) and aligned the click target area of the Auto-Reward checkbox to avoid mismatching.
 
+### I. Auto-Pilot Mode (Continuation Loop)
+*   **Implementation**: Added an "Auto-Pilot" checkbox. When enabled, if the selected Android dies, the simulation automatically spawns a new customizable Android at the center of the camera viewport, selects it, copies its upgrade configuration (Solar pad and Rad shield), and resumes training via Auto-Reward.
+
+### J. Life Leaderboards & Rankings
+*   **Implementation**: Created a tabbed HUD sidebar panel: **`[ 1: CREATOR ]`** and **`[ 2: LEADERBOARD ]`**.
+*   **Rankings Table**: The Leaderboard tab tracks frame-level survival time (`survival_ticks`) for all active and deceased Android instances in real-time, displaying their rank, name, survival duration in seconds, and status (`ALIVE` in green, `DEAD` in red).
+
 ---
 
 ## 3. Data Flow Diagram
