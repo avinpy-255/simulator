@@ -640,7 +640,7 @@ class GameController:
                     continue
                     
                 # UI Inputs typing handler
-                if self.ui.editing_field:
+                if self.ui.editing_field and event.type in [pygame.KEYDOWN, pygame.KEYUP]:
                     self.ui.handle_keyboard(event)
                     continue
                     

@@ -247,7 +247,8 @@ class Human(BaseEntity):
                     bx = int(self.x - (dx / length))
                     by = int(self.y - (dy / length))
                     if 0 <= bx < world.width and 0 <= by < world.height:
-                        if world.get_tile(bx, by) in [TILE_GRASS, TILE_DIRT]:
+                        # Prevent humans from placing walls directly on their current tile
+                        if (bx != int(self.x) or by != int(self.y)) and world.get_tile(bx, by) in [TILE_GRASS, TILE_DIRT]:
                             world.set_tile(bx, by, TILE_WALL)
                             self.wood -= 2
             
@@ -259,8 +260,8 @@ class Human(BaseEntity):
                 self.move_with_collision((dx/length) * self.speed * 1.4, (dy/length) * self.speed * 1.4, world)
             return
 
-        # Sleep at night
-        if world.global_light < 15.0:
+        # Sleep at night (unless in sunless mode, where they stay awake using flashlights)
+        if world.global_light < 15.0 and world.preset != "no_sun":
             self.state = "sleep"
             return
 
@@ -313,18 +314,6 @@ class Zombie(BaseEntity):
         self.wander_dir = (0, 0)
 
     def update(self, world, entities):
-        # 1. Smash nearby walls if they block their path
-        tx, ty = int(self.x), int(self.y)
-        for dx, dy in [(0, -1), (1, 0), (0, 1), (-1, 0)]:
-            wx, wy = tx + dx, ty + dy
-            if 0 <= wx < world.width and 0 <= wy < world.height:
-                if world.get_tile(wx, wy) == TILE_WALL:
-                    # Smash wall
-                    if random.random() < 0.005:  # Smash in ~3.5 seconds
-                        world.set_tile(wx, wy, TILE_DIRT)
-                    self.state = "smashing"
-                    return  # Stop and bash
-                    
         # Search for humans or animals to hunt
         self.target = None
         closest_dist = 10.0
@@ -335,15 +324,39 @@ class Zombie(BaseEntity):
                     closest_dist = d
                     self.target = ent
                     
+        # Intended movement direction
+        vx, vy = 0.0, 0.0
         if self.target:
             self.state = "hunt"
-            # Move towards target
             dx = self.target.x - self.x
             dy = self.target.y - self.y
-            length = math.sqrt(dx*dx + dy*dy)
+            length = math.hypot(dx, dy)
             if length > 0:
-                self.move_with_collision((dx/length) * self.speed, (dy/length) * self.speed, world)
+                vx, vy = dx / length, dy / length
+        else:
+            self.state = "wander"
+            self.wander_timer -= 1
+            if self.wander_timer <= 0:
+                angle = random.uniform(0, 2 * math.pi)
+                self.wander_dir = (math.cos(angle), math.sin(angle))
+                self.wander_timer = random.randint(60, 200)
+            vx, vy = self.wander_dir
+            
+        # Check if the tile in front of them in their heading is a Wall
+        front_x = int(self.x + 0.5 + vx * 0.7)
+        front_y = int(self.y + 0.5 + vy * 0.7)
+        if 0 <= front_x < world.width and 0 <= front_y < world.height:
+            if world.get_tile(front_x, front_y) == TILE_WALL:
+                # Smash wall in front of them
+                self.state = "smashing"
+                if random.random() < 0.005:  # Smash in ~3.5 seconds
+                    world.set_tile(front_x, front_y, TILE_DIRT)
+                return  # Stop and bash
                 
+        # Execute movement or hunting attack
+        if self.target:
+            if length > 0:
+                self.move_with_collision(vx * self.speed, vy * self.speed, world)
             # Attack if close
             if closest_dist < 0.7:
                 self.target.health -= 0.6
@@ -351,17 +364,8 @@ class Zombie(BaseEntity):
                     # Infect human
                     if self.target.infection_timer < 0:
                         self.target.infection_timer = random.randint(180, 500) # turns soon
-            return
-
-        # Wander
-        self.state = "wander"
-        self.wander_timer -= 1
-        if self.wander_timer <= 0:
-            angle = random.uniform(0, 2 * math.pi)
-            self.wander_dir = (math.cos(angle), math.sin(angle))
-            self.wander_timer = random.randint(60, 200)
-            
-        self.move_with_collision(self.wander_dir[0] * self.speed, self.wander_dir[1] * self.speed, world)
+        else:
+            self.move_with_collision(vx * self.speed, vy * self.speed, world)
 
 class NeuralAndroid(BaseEntity):
     def __init__(self, x, y, name="Android Alpha", role="Explorer", temperament="Balanced"):
